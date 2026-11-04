@@ -2,10 +2,29 @@
 
 Switches the Keychron G6 HE 8K mouse profile automatically based on which app is focused (COSMIC desktop).
 
-- `bin/mouse-profile N` — switches the mouse to profile N (0 = first, 1 = second, …).
-- `mouse-profiled` (this Rust project) — watches the focused window and runs `mouse-profile` when the profile should change.
+Two binaries, Rust standard library + `cosmic-client-toolkit` only:
+
+- `mouse-profile N` — switches the mouse to profile N (0 = first, 1 = second, …). Bind it to keyboard shortcuts if you like.
+- `mouse-profiled` — watches the focused window and switches the profile per `apps.conf`.
 
 ## Install
+
+Requires `cargo` ([rustup.rs](https://rustup.rs)).
+
+```sh
+./install.sh
+```
+
+It is safe to re-run (e.g. after `git pull`). It:
+
+1. writes the udev rule `/etc/udev/rules.d/70-keychron.rules` (asks for sudo, only if missing or changed) and checks you can access the mouse — replug it if told to;
+2. builds and installs both binaries with `cargo install` into `~/.cargo/bin`;
+3. creates `~/.config/mouse-profile/apps.conf` from `apps.conf.example` if it doesn't exist (never overwrites);
+4. installs, enables and (re)starts the `mouse-profiled` systemd user service.
+
+Uninstall with `./install.sh --uninstall` (keeps your `apps.conf`).
+
+### Manual install
 
 1. Let your user access the mouse (one-time, needs sudo). The rule file must be numbered below 73:
 
@@ -17,22 +36,22 @@ Switches the Keychron G6 HE 8K mouse profile automatically based on which app is
 
    Then replug the mouse/receiver.
 
-2. Put the switch script on your `PATH` and test it:
+2. Build, install and test the binaries:
 
    ```sh
-   ln -s "$PWD/bin/mouse-profile" ~/.local/bin/mouse-profile
+   cargo install --path . --locked
    mouse-profile 1
    ```
 
-3. Build and start the daemon:
+3. Install the config and start the daemon:
 
    ```sh
-   cargo install --path .
+   mkdir -p ~/.config/mouse-profile ~/.config/systemd/user
+   cp -n apps.conf.example ~/.config/mouse-profile/apps.conf
+   cp systemd/mouse-profiled.service ~/.config/systemd/user/
    systemctl --user daemon-reload
    systemctl --user enable --now mouse-profiled
    ```
-
-   The service file is at `~/.config/systemd/user/mouse-profiled.service`.
 
 ## Configure
 

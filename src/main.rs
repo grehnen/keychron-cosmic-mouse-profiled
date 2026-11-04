@@ -1,7 +1,7 @@
 //! Watches the focused window on COSMIC and switches the mouse profile
-//! (via the `mouse-profile` script) according to ~/.config/mouse-profile/apps.conf.
+//! according to ~/.config/mouse-profile/apps.conf.
 
-use std::{collections::HashMap, fs, path::PathBuf, process::Command};
+use std::{collections::HashMap, fs, path::PathBuf};
 
 use cosmic_client_toolkit::{
     cosmic_protocols::toplevel_info::v1::client::zcosmic_toplevel_handle_v1::State,
@@ -75,17 +75,9 @@ impl App {
 }
 
 fn apply_profile(profile: u8) -> bool {
-    match Command::new("mouse-profile").arg(profile.to_string()).status() {
-        Ok(status) if status.success() => true,
-        Ok(status) => {
-            eprintln!("mouse-profile {profile} failed: {status}");
-            false
-        }
-        Err(err) => {
-            eprintln!("could not run mouse-profile: {err}");
-            false
-        }
-    }
+    mouse_profiled::set_profile(profile)
+        .map_err(|err| eprintln!("switching to profile {profile} failed: {err}"))
+        .is_ok()
 }
 
 impl ToplevelInfoHandler for App {

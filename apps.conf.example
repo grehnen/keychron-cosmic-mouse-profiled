@@ -1,0 +1,10 @@
+# Mouse profile per focused app (0 = first profile, 1 = second, ...).
+# Keys are Wayland app IDs (case-insensitive). Find them with:
+#   journalctl --user -u mouse-profiled -f
+# Edits apply on the next focus change, no restart needed.
+
+default = 0
+
+# Examples:
+# gamescope = 1
+# steam_app_730 = 1
