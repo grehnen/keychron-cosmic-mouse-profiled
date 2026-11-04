@@ -1,8 +1,8 @@
 # mouse-profiled
 
-Switches the Keychron G6 HE 8K mouse profile automatically based on which app is focused (COSMIC desktop).
+Automatically switches your Keychron G6 HE 8K mouse to another profile depending on which app has focus on the COSMIC desktop.
 
-Two binaries, Rust standard library + `cosmic-client-toolkit` only:
+It is made up of two small binaries that use only the Rust standard library and `cosmic-client-toolkit`:
 
 - `mouse-profile N` — switches the mouse to profile N (0 = first, 1 = second, …). Bind it to keyboard shortcuts if you like.
 - `mouse-profiled` — watches the focused window and switches the profile per `apps.conf`.
@@ -86,6 +86,14 @@ The profile command was captured from the Keychron web launcher (launcher.keychr
 The daemon uses COSMIC's `ext-foreign-toplevel-list` + `zcosmic-toplevel-info` protocols to find the window with the `Activated` state.
 
 If a firmware update breaks switching, re-capture: hook `HIDDevice.prototype.sendReport` in the launcher's DevTools console, switch profiles, and compare the logged reports.
+
+## Compatibility
+
+Only tested on the Keychron G6 HE 8K (TurboLink 8K receiver, 2 profiles). Nothing is tied to that model: the code picks the first Keychron device (vendor ID `0x3434`) that has the `0xFFC1` vendor interface. Other Keychron mice managed by the same web launcher will probably work, but check first:
+
+- Capture the launcher's profile command (see [How it works](#how-it-works)) and make sure it matches `B5 0E <index> <count>`. Another model could use different bytes.
+- With more than one matching Keychron device connected, the command may go to the wrong one.
+- If you use more than 2 profiles, set `MOUSE_PROFILE_COUNT`.
 
 ## Troubleshooting
 
