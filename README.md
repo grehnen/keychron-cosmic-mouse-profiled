@@ -19,7 +19,7 @@ It is safe to re-run (e.g. after `git pull`). It:
 
 1. writes the udev rule `/etc/udev/rules.d/70-keychron.rules` (asks for sudo, only if missing or changed) and checks you can access the mouse — replug it if told to;
 2. builds and installs both binaries with `cargo install` into `~/.cargo/bin`;
-3. creates `~/.config/mouse-profile/apps.conf` from `apps.conf.example` if it doesn't exist, asking how many profiles the mouse has (never overwrites an existing one);
+3. creates `~/.config/mouse-profile/apps.conf` from `apps.conf.example` if it doesn't exist, asking how many profiles the mouse has. When 2 or more devices are known (connected, or already saved), it lets you pick which get the profile command; in an existing `apps.conf` only the `device` lines are changed;
 4. installs, enables and (re)starts the `mouse-profiled` systemd user service.
 
 Uninstall with `./install.sh --uninstall` (keeps your `apps.conf`).
@@ -59,12 +59,15 @@ Edit `~/.config/mouse-profile/apps.conf`:
 
 ```ini
 profiles = 2         # number of profiles on the mouse ("Levels" in the launcher, 1–5; default 2)
+device = 3434:d05a   # only switch this device (repeatable; omit to switch every Keychron mouse)
 default = 0          # profile for every app not listed
 
 steam_app_730 = 1    # app_id = profile index
 ```
 
 Changes take effect on the next focus change; no restart needed.
+
+`device` lines use the USB `vendor:product` ID, which stays the same across replugs. The mouse may have a different ID wired than through the receiver; if so, add both. `./install.sh` lists connected devices with their names and writes these lines for you.
 
 ### Finding app IDs
 
@@ -90,10 +93,10 @@ If a firmware update breaks switching, re-capture: hook `HIDDevice.prototype.sen
 
 ## Compatibility
 
-Only tested on the Keychron G6 HE 8K with 2 profiles, both through the TurboLink 8K receiver and over a wired USB connection. Nothing is tied to that model: the profile command is sent to every Keychron device (vendor ID `0x3434`) that has the `0xFFC1` vendor interface. Other Keychron mice managed by the same web launcher will probably work, but check first:
+Only tested on the Keychron G6 HE 8K with 2 profiles, both through the TurboLink 8K receiver and over a wired USB connection. Nothing is tied to that model: the profile command is sent to every Keychron device (vendor ID `0x3434`) that has the `0xFFC1` vendor interface, or only to the ones listed as `device` lines in `apps.conf`. Other Keychron mice managed by the same web launcher will probably work, but check first:
 
 - Capture the launcher's profile command (see [How it works](#how-it-works)) and make sure it matches `B5 0E <index> <count>`. Another model could use different bytes.
-- Every matching device gets the same command, so a different Keychron model that also has this interface but uses other bytes could receive a command it doesn't understand.
+- Without `device` lines, every matching device gets the same command, so a different Keychron model that also has this interface but uses other bytes could receive a command it doesn't understand. List your devices with `device` lines to avoid that.
 - If you use more than 2 profiles, set `profiles = N` in `apps.conf`.
 
 ## Troubleshooting

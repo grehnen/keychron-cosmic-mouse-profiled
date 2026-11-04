@@ -38,13 +38,13 @@ impl App {
         println!("focus: {app_id} -> profile {profile}");
         self.focused_app_id = Some(app_id);
         if self.applied_profile != Some(profile) {
-            self.applied_profile = apply_profile(profile, config.profile_count).then_some(profile);
+            self.applied_profile = apply_profile(profile, &config).then_some(profile);
         }
     }
 }
 
-fn apply_profile(profile: u8, count: u8) -> bool {
-    mouse_profiled::set_profile(profile, count)
+fn apply_profile(profile: u8, config: &mouse_profiled::Config) -> bool {
+    mouse_profiled::set_profile(profile, config)
         .map_err(|err| eprintln!("switching to profile {profile} failed: {err}"))
         .is_ok()
 }

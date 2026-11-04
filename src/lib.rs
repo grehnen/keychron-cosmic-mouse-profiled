@@ -11,7 +11,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-const KEYCHRON_VENDOR_ID: u32 = 0x3434;
+const KEYCHRON_VENDOR_ID: u16 = 0x3434;
 /// `Usage Page (0xFFC1)` as it appears in a HID report descriptor.
 const VENDOR_USAGE_PAGE_DESCRIPTOR: [u8; 3] = [0x06, 0xC1, 0xFF];
 const PROFILE_REPORT_ID: u8 = 0xB5;
@@ -28,6 +28,25 @@ pub struct Config {
     pub default_profile: u8,
     /// `app_id = N` rules, keyed by lowercase app ID.
     pub by_app_id: HashMap<String, u8>,
+    /// Devices to switch, from `device = vendor:product` lines. Empty means every matching device.
+    pub devices: Vec<UsbId>,
+}
+
+/// A USB vendor:product ID pair, written as `3434:d05a` in `apps.conf`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct UsbId {
+    pub vendor: u16,
+    pub product: u16,
+}
+
+impl UsbId {
+    fn parse(text: &str) -> Option<Self> {
+        let (vendor, product) = text.trim().split_once(':')?;
+        Some(Self {
+            vendor: u16::from_str_radix(vendor, 16).ok()?,
+            product: u16::from_str_radix(product, 16).ok()?,
+        })
+    }
 }
 
 impl Config {
@@ -48,17 +67,24 @@ pub fn load_config() -> Config {
     parse_config(&fs::read_to_string(config_path()).unwrap_or_default())
 }
 
-/// Format: `profiles = N`, `default = N`, and one `app_id = N` per line; `#` starts a comment.
+/// Format: `profiles = N`, `default = N`, `device = vendor:product` (repeatable), and one
+/// `app_id = N` per line; `#` starts a comment.
 fn parse_config(text: &str) -> Config {
     let mut config = Config {
         profile_count: DEFAULT_PROFILE_COUNT,
         default_profile: 0,
         by_app_id: HashMap::new(),
+        devices: Vec::new(),
     };
     for line in text.lines().map(|l| l.split('#').next().unwrap().trim()) {
         let Some((key, value)) = line.split_once('=') else { continue };
-        let Ok(number) = value.trim().parse::<u8>() else { continue };
-        match key.trim() {
+        let (key, value) = (key.trim(), value.trim());
+        if key == "device" {
+            config.devices.extend(UsbId::parse(value));
+            continue;
+        }
+        let Ok(number) = value.parse::<u8>() else { continue };
+        match key {
             "profiles" if (1..=MAX_PROFILE_COUNT).contains(&number) => config.profile_count = number,
             "profiles" => {}
             "default" => config.default_profile = number,
@@ -70,26 +96,30 @@ fn parse_config(text: &str) -> Config {
     config
 }
 
-/// Finds the `/dev/hidrawN` nodes of every Keychron device with the vendor interface.
-pub fn find_vendor_hidraws() -> Vec<PathBuf> {
+/// Finds the `/dev/hidrawN` nodes of Keychron devices with the vendor interface, limited to
+/// `devices` unless it is empty.
+pub fn find_vendor_hidraws(devices: &[UsbId]) -> Vec<PathBuf> {
     let Ok(dir) = fs::read_dir("/sys/class/hidraw") else {
         return Vec::new();
     };
     let mut nodes: Vec<_> = dir
         .flatten()
-        .filter(|entry| has_vendor_interface(&entry.path().join("device")))
+        .filter(|entry| has_vendor_interface(&entry.path().join("device"), devices))
         .map(|entry| PathBuf::from("/dev").join(entry.file_name()))
         .collect();
     nodes.sort();
     nodes
 }
 
-fn has_vendor_interface(device_dir: &Path) -> bool {
-    let is_keychron = fs::read_to_string(device_dir.join("uevent"))
+fn has_vendor_interface(device_dir: &Path, devices: &[UsbId]) -> bool {
+    let Some(id) = fs::read_to_string(device_dir.join("uevent"))
         .ok()
-        .and_then(|uevent| hid_vendor_id(&uevent))
-        == Some(KEYCHRON_VENDOR_ID);
-    is_keychron
+        .and_then(|uevent| hid_usb_id(&uevent))
+    else {
+        return false;
+    };
+    id.vendor == KEYCHRON_VENDOR_ID
+        && (devices.is_empty() || devices.contains(&id))
         && fs::read(device_dir.join("report_descriptor")).is_ok_and(|descriptor| {
             descriptor
                 .windows(VENDOR_USAGE_PAGE_DESCRIPTOR.len())
@@ -97,21 +127,24 @@ fn has_vendor_interface(device_dir: &Path) -> bool {
         })
 }
 
-/// Parses the vendor ID from a uevent's `HID_ID=bus:vendor:product` line.
-fn hid_vendor_id(uevent: &str) -> Option<u32> {
+/// Parses the USB ID from a uevent's `HID_ID=bus:vendor:product` line (8 hex digits each).
+fn hid_usb_id(uevent: &str) -> Option<UsbId> {
     let hid_id = uevent.lines().find_map(|line| line.strip_prefix("HID_ID="))?;
-    u32::from_str_radix(hid_id.split(':').nth(1)?, 16).ok()
+    let mut fields = hid_id.split(':').skip(1);
+    let mut next = || u32::from_str_radix(fields.next()?, 16).ok()?.try_into().ok();
+    Some(UsbId { vendor: next()?, product: next()? })
 }
 
-/// Sends the profile command to every matching device. Fails if none is found or any write fails.
-/// `count` is the number of profiles configured on the mouse (`Config::profile_count`).
-pub fn set_profile(index: u8, count: u8) -> Result<(), String> {
+/// Sends the profile command to every matching device (see `Config::devices`).
+/// Fails if none is found or any write fails.
+pub fn set_profile(index: u8, config: &Config) -> Result<(), String> {
+    let count = config.profile_count;
     if index >= count {
         return Err(format!("profile index {index} out of range (count {count})"));
     }
-    let devices = find_vendor_hidraws();
+    let devices = find_vendor_hidraws(&config.devices);
     if devices.is_empty() {
-        return Err("Keychron mouse vendor interface not found".into());
+        return Err("no matching Keychron mouse connected".into());
     }
     let mut report = vec![0u8; 1 + PROFILE_PAYLOAD_LEN];
     report[..4].copy_from_slice(&[PROFILE_REPORT_ID, 0x0E, index, count]);
@@ -138,14 +171,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_vendor_id_from_uevent() {
+    fn parses_usb_id_from_uevent() {
         let uevent = "DRIVER=hid-generic\nHID_ID=0003:00003434:0000D05A\nHID_NAME=Keychron\n";
-        assert_eq!(hid_vendor_id(uevent), Some(0x3434));
+        assert_eq!(hid_usb_id(uevent), Some(UsbId { vendor: 0x3434, product: 0xd05a }));
     }
 
     #[test]
     fn missing_hid_id_yields_none() {
-        assert_eq!(hid_vendor_id("HID_NAME=Keychron\n"), None);
+        assert_eq!(hid_usb_id("HID_NAME=Keychron\n"), None);
+    }
+
+    #[test]
+    fn parses_device_lines() {
+        let config = parse_config("device = 3434:d05a  # Keychron TurboLink 8K\ndevice = 3434:D0AB\ndevice = nonsense\n");
+        assert_eq!(
+            config.devices,
+            [UsbId { vendor: 0x3434, product: 0xd05a }, UsbId { vendor: 0x3434, product: 0xd0ab }]
+        );
+        assert!(config.by_app_id.is_empty());
     }
 
     #[test]

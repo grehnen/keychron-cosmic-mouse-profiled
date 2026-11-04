@@ -5,6 +5,11 @@
 # Defaults to 2 if this line is missing or commented out.
 # profiles = 2
 
+# Devices that get the profile command, one `device = <vendor>:<product>` USB ID
+# per line. Without device lines, every connected Keychron mouse gets it.
+# ./install.sh lists the connected devices and lets you pick.
+# device = 3434:d05a  # Keychron TurboLink 8K
+
 # Profile for every app without its own rule below.
 default = 0
 

@@ -8,7 +8,7 @@ fn main() -> ExitCode {
         eprintln!("usage: mouse-profile <index>   (0 = first profile, 1 = second, ...)");
         return ExitCode::from(2);
     };
-    match mouse_profiled::set_profile(index, mouse_profiled::load_config().profile_count) {
+    match mouse_profiled::set_profile(index, &mouse_profiled::load_config()) {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
             eprintln!("mouse-profile: {err}");
