@@ -1,8 +1,6 @@
 //! Watches the focused window on COSMIC and switches the mouse profile
 //! according to ~/.config/mouse-profile/apps.conf.
 
-use std::{collections::HashMap, fs, path::PathBuf};
-
 use cosmic_client_toolkit::{
     cosmic_protocols::toplevel_info::v1::client::zcosmic_toplevel_handle_v1::State,
     sctk::{
@@ -14,35 +12,6 @@ use cosmic_client_toolkit::{
     wayland_client::{globals::registry_queue_init, protocol::wl_output, Connection, QueueHandle},
     wayland_protocols::ext::foreign_toplevel_list::v1::client::ext_foreign_toplevel_handle_v1::ExtForeignToplevelHandleV1,
 };
-
-struct ProfileRules {
-    by_app_id: HashMap<String, u8>,
-    default_profile: u8,
-}
-
-fn config_path() -> PathBuf {
-    let base = std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap()).join(".config"));
-    base.join("mouse-profile/apps.conf")
-}
-
-/// Format: one `app_id = profile_index` per line, `default = N` for everything else, `#` comments.
-fn load_rules() -> ProfileRules {
-    let mut rules = ProfileRules { by_app_id: HashMap::new(), default_profile: 0 };
-    let Ok(text) = fs::read_to_string(config_path()) else { return rules };
-    for line in text.lines().map(|l| l.split('#').next().unwrap().trim()) {
-        let Some((key, value)) = line.split_once('=') else { continue };
-        let Ok(profile) = value.trim().parse::<u8>() else { continue };
-        match key.trim() {
-            "default" => rules.default_profile = profile,
-            app_id => {
-                rules.by_app_id.insert(app_id.to_lowercase(), profile);
-            }
-        }
-    }
-    rules
-}
 
 struct App {
     registry_state: RegistryState,
@@ -64,18 +33,18 @@ impl App {
         if self.focused_app_id.as_deref() == Some(&app_id) {
             return;
         }
-        let rules = load_rules();
-        let profile = *rules.by_app_id.get(&app_id.to_lowercase()).unwrap_or(&rules.default_profile);
+        let config = mouse_profiled::load_config();
+        let profile = config.profile_for(&app_id);
         println!("focus: {app_id} -> profile {profile}");
         self.focused_app_id = Some(app_id);
         if self.applied_profile != Some(profile) {
-            self.applied_profile = apply_profile(profile).then_some(profile);
+            self.applied_profile = apply_profile(profile, config.profile_count).then_some(profile);
         }
     }
 }
 
-fn apply_profile(profile: u8) -> bool {
-    mouse_profiled::set_profile(profile)
+fn apply_profile(profile: u8, count: u8) -> bool {
+    mouse_profiled::set_profile(profile, count)
         .map_err(|err| eprintln!("switching to profile {profile} failed: {err}"))
         .is_ok()
 }
@@ -126,7 +95,7 @@ fn main() {
         focused_app_id: None,
         applied_profile: None,
     };
-    println!("watching focus; rules from {}", config_path().display());
+    println!("watching focus; rules from {}", mouse_profiled::config_path().display());
     loop {
         event_queue.blocking_dispatch(&mut app).expect("wayland connection lost");
     }

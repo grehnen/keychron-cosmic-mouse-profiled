@@ -1,10 +1,14 @@
-# Mouse profile per focused app (0 = first profile, 1 = second, ...).
-# Keys are Wayland app IDs (case-insensitive). Find them with:
-#   journalctl --user -u mouse-profiled -f
-# Edits apply on the next focus change, no restart needed.
+# mouse-profile config. Edits apply on the next focus change, no restart needed.
+# Profiles are numbered from 0 (0 = first, 1 = second, ...).
 
+# Number of profiles set up on the mouse ("Levels" in the Keychron launcher).
+# Defaults to 2; uncomment and change it if you use more.
+# profiles = 2
+
+# Profile for every app without its own rule below.
 default = 0
 
-# Examples:
+# Profile per app: <app_id> = <profile>. App IDs are case-insensitive;
+# find them with:  journalctl --user -u mouse-profiled -f
 # gamescope = 1
 # steam_app_730 = 1

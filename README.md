@@ -58,6 +58,7 @@ Uninstall with `./install.sh --uninstall` (keeps your `apps.conf`).
 Edit `~/.config/mouse-profile/apps.conf`:
 
 ```ini
+profiles = 2         # number of profiles on the mouse ("Levels" in the launcher; default 2)
 default = 0          # profile for every app not listed
 
 steam_app_730 = 1    # app_id = profile index
@@ -81,7 +82,7 @@ The profile command was captured from the Keychron web launcher (launcher.keychr
 
 - Interface: the vendor HID collection (usage page `0xFFC1`), present on both the TurboLink receiver and the mouse itself when wired, found on every connected Keychron device by scanning `/sys/class/hidraw/*/device/report_descriptor`.
 - Output report ID `0xB5`, 20-byte payload: `0E <profile_index> <profile_count> 00…`.
-- `<profile_count>` matches "Levels" in the launcher (default 2). Override with `MOUSE_PROFILE_COUNT=N`.
+- `<profile_count>` matches "Levels" in the launcher (default 2). Set it with `profiles = N` in `apps.conf`.
 
 The daemon uses COSMIC's `ext-foreign-toplevel-list` + `zcosmic-toplevel-info` protocols to find the window with the `Activated` state.
 
@@ -93,7 +94,7 @@ Only tested on the Keychron G6 HE 8K with 2 profiles, both through the TurboLink
 
 - Capture the launcher's profile command (see [How it works](#how-it-works)) and make sure it matches `B5 0E <index> <count>`. Another model could use different bytes.
 - Every matching device gets the same command, so a different Keychron model that also has this interface but uses other bytes could receive a command it doesn't understand.
-- If you use more than 2 profiles, set `MOUSE_PROFILE_COUNT`.
+- If you use more than 2 profiles, set `profiles = N` in `apps.conf`.
 
 ## Troubleshooting
 

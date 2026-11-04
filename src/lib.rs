@@ -5,6 +5,7 @@
 //! padded to 20 bytes.
 
 use std::{
+    collections::HashMap,
     fs,
     io::Write,
     path::{Path, PathBuf},
@@ -17,12 +18,54 @@ const PROFILE_REPORT_ID: u8 = 0xB5;
 const PROFILE_PAYLOAD_LEN: usize = 20;
 const DEFAULT_PROFILE_COUNT: u8 = 2;
 
-/// Number of profiles configured in the launcher ("Levels"); override with `MOUSE_PROFILE_COUNT`.
-pub fn profile_count() -> u8 {
-    std::env::var("MOUSE_PROFILE_COUNT")
-        .ok()
-        .and_then(|value| value.parse().ok())
-        .unwrap_or(DEFAULT_PROFILE_COUNT)
+/// Contents of `~/.config/mouse-profile/apps.conf`.
+pub struct Config {
+    /// Number of profiles configured in the launcher ("Levels"), from `profiles = N`.
+    pub profile_count: u8,
+    /// Profile for apps without their own rule, from `default = N`.
+    pub default_profile: u8,
+    /// `app_id = N` rules, keyed by lowercase app ID.
+    pub by_app_id: HashMap<String, u8>,
+}
+
+impl Config {
+    pub fn profile_for(&self, app_id: &str) -> u8 {
+        *self.by_app_id.get(&app_id.to_lowercase()).unwrap_or(&self.default_profile)
+    }
+}
+
+pub fn config_path() -> PathBuf {
+    let base = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap()).join(".config"));
+    base.join("mouse-profile/apps.conf")
+}
+
+/// Loads the config, falling back to defaults if the file is missing.
+pub fn load_config() -> Config {
+    parse_config(&fs::read_to_string(config_path()).unwrap_or_default())
+}
+
+/// Format: `profiles = N`, `default = N`, and one `app_id = N` per line; `#` starts a comment.
+fn parse_config(text: &str) -> Config {
+    let mut config = Config {
+        profile_count: DEFAULT_PROFILE_COUNT,
+        default_profile: 0,
+        by_app_id: HashMap::new(),
+    };
+    for line in text.lines().map(|l| l.split('#').next().unwrap().trim()) {
+        let Some((key, value)) = line.split_once('=') else { continue };
+        let Ok(number) = value.trim().parse::<u8>() else { continue };
+        match key.trim() {
+            "profiles" if number > 0 => config.profile_count = number,
+            "profiles" => {}
+            "default" => config.default_profile = number,
+            app_id => {
+                config.by_app_id.insert(app_id.to_lowercase(), number);
+            }
+        }
+    }
+    config
 }
 
 /// Finds the `/dev/hidrawN` nodes of every Keychron device with the vendor interface.
@@ -59,8 +102,8 @@ fn hid_vendor_id(uevent: &str) -> Option<u32> {
 }
 
 /// Sends the profile command to every matching device. Fails if none is found or any write fails.
-pub fn set_profile(index: u8) -> Result<(), String> {
-    let count = profile_count();
+/// `count` is the number of profiles configured on the mouse (`Config::profile_count`).
+pub fn set_profile(index: u8, count: u8) -> Result<(), String> {
     if index >= count {
         return Err(format!("profile index {index} out of range (count {count})"));
     }
@@ -101,5 +144,25 @@ mod tests {
     #[test]
     fn missing_hid_id_yields_none() {
         assert_eq!(hid_vendor_id("HID_NAME=Keychron\n"), None);
+    }
+
+    #[test]
+    fn parses_config() {
+        let config = parse_config("# comment\nprofiles = 3\ndefault = 1\nGamescope = 2  # inline\njunk\n");
+        assert_eq!(config.profile_count, 3);
+        assert_eq!(config.profile_for("gamescope"), 2);
+        assert_eq!(config.profile_for("firefox"), 1);
+    }
+
+    #[test]
+    fn empty_config_uses_defaults() {
+        let config = parse_config("");
+        assert_eq!(config.profile_count, DEFAULT_PROFILE_COUNT);
+        assert_eq!(config.profile_for("anything"), 0);
+    }
+
+    #[test]
+    fn zero_profiles_is_ignored() {
+        assert_eq!(parse_config("profiles = 0").profile_count, DEFAULT_PROFILE_COUNT);
     }
 }
