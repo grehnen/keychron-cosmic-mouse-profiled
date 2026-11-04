@@ -5,6 +5,8 @@ Automatically switches your Keychron G6 HE 8K mouse to another profile depending
 It is made up of two small binaries that use only the Rust standard library and `cosmic-client-toolkit`:
 
 - `mouse-profile N` — switches the mouse to profile N (0 = first, 1 = second, …). Bind it to keyboard shortcuts if you like.
+  - `mouse-profile configure` — creates or updates `apps.conf` interactively (profile count, which devices to switch).
+  - `mouse-profile devices` — lists the connected Keychron mice it can switch.
 - `mouse-profiled` — watches the focused window and switches the profile per `apps.conf`.
 
 ## Install
@@ -17,9 +19,9 @@ Requires `cargo` ([rustup.rs](https://rustup.rs)).
 
 It is safe to re-run (e.g. after `git pull`). It:
 
-1. writes the udev rule `/etc/udev/rules.d/70-keychron.rules` (asks for sudo, only if missing or changed) and checks you can access the mouse — replug it if told to;
-2. builds and installs both binaries with `cargo install` into `~/.cargo/bin`;
-3. creates `~/.config/mouse-profile/apps.conf` from `apps.conf.example` if it doesn't exist, asking how many profiles the mouse has. When 2 or more devices are known (connected, or already saved), it lets you pick which get the profile command; in an existing `apps.conf` only the `device` lines are changed;
+1. builds and installs both binaries with `cargo install` into `~/.cargo/bin`;
+2. writes the udev rule `/etc/udev/rules.d/70-keychron.rules` (asks for sudo, only if missing or changed) and checks you can access the mouse — replug it if told to;
+3. runs `mouse-profile configure`: creates `~/.config/mouse-profile/apps.conf` if it doesn't exist, asking how many profiles the mouse has. When 2 or more devices are known (connected, or already saved), it lets you pick which get the profile command; in an existing `apps.conf` only the `device` lines are changed;
 4. installs, enables and (re)starts the `mouse-profiled` systemd user service.
 
 Uninstall with `./install.sh --uninstall` (keeps your `apps.conf`).
@@ -46,8 +48,8 @@ Uninstall with `./install.sh --uninstall` (keeps your `apps.conf`).
 3. Install the config and start the daemon:
 
    ```sh
-   mkdir -p ~/.config/mouse-profile ~/.config/systemd/user
-   cp -n apps.conf.example ~/.config/mouse-profile/apps.conf
+   mouse-profile configure
+   mkdir -p ~/.config/systemd/user
    cp systemd/mouse-profiled.service ~/.config/systemd/user/
    systemctl --user daemon-reload
    systemctl --user enable --now mouse-profiled
@@ -67,7 +69,7 @@ steam_app_730 = 1    # app_id = profile index
 
 Changes take effect on the next focus change; no restart needed.
 
-`device` lines use the USB `vendor:product` ID, which stays the same across replugs. The mouse may have a different ID wired than through the receiver; if so, add both. `./install.sh` lists connected devices with their names and writes these lines for you.
+`device` lines use the USB `vendor:product` ID, which stays the same across replugs. The mouse may have a different ID wired than through the receiver; if so, add both. `mouse-profile configure` (also run by `./install.sh`) lists connected devices with their names and writes these lines for you; `mouse-profile devices` shows the IDs.
 
 ### Finding app IDs
 

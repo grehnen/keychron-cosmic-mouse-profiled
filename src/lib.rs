@@ -4,9 +4,11 @@
 //! vendor interface (usage page 0xFFC1), payload `0E <index> <profile_count>`
 //! padded to 20 bytes.
 
+pub mod setup;
+
 use std::{
     collections::HashMap,
-    fs,
+    fmt, fs,
     io::Write,
     path::{Path, PathBuf},
 };
@@ -16,7 +18,7 @@ const KEYCHRON_VENDOR_ID: u16 = 0x3434;
 const VENDOR_USAGE_PAGE_DESCRIPTOR: [u8; 3] = [0x06, 0xC1, 0xFF];
 const PROFILE_REPORT_ID: u8 = 0xB5;
 const PROFILE_PAYLOAD_LEN: usize = 20;
-const DEFAULT_PROFILE_COUNT: u8 = 2;
+pub const DEFAULT_PROFILE_COUNT: u8 = 2;
 /// The launcher allows at most 5 profiles ("Levels").
 pub const MAX_PROFILE_COUNT: u8 = 5;
 
@@ -39,8 +41,14 @@ pub struct UsbId {
     pub product: u16,
 }
 
+impl fmt::Display for UsbId {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:04x}:{:04x}", self.vendor, self.product)
+    }
+}
+
 impl UsbId {
-    fn parse(text: &str) -> Option<Self> {
+    pub fn parse(text: &str) -> Option<Self> {
         let (vendor, product) = text.trim().split_once(':')?;
         Some(Self {
             vendor: u16::from_str_radix(vendor, 16).ok()?,
@@ -96,35 +104,57 @@ fn parse_config(text: &str) -> Config {
     config
 }
 
-/// Finds the `/dev/hidrawN` nodes of Keychron devices with the vendor interface, limited to
-/// `devices` unless it is empty.
-pub fn find_vendor_hidraws(devices: &[UsbId]) -> Vec<PathBuf> {
+/// A hidraw node the profile command can go to.
+pub struct MouseInterface {
+    /// e.g. `/dev/hidraw2`.
+    pub node: PathBuf,
+    pub id: UsbId,
+    /// Product name, e.g. "Keychron TurboLink 8K".
+    pub name: String,
+}
+
+/// Finds every Keychron hidraw node with the vendor interface, sorted by node.
+/// One device can expose several of these.
+pub fn mouse_interfaces() -> Vec<MouseInterface> {
     let Ok(dir) = fs::read_dir("/sys/class/hidraw") else {
         return Vec::new();
     };
-    let mut nodes: Vec<_> = dir
+    let mut found: Vec<_> = dir
         .flatten()
-        .filter(|entry| has_vendor_interface(&entry.path().join("device"), devices))
-        .map(|entry| PathBuf::from("/dev").join(entry.file_name()))
+        .filter_map(|entry| {
+            let device_dir = entry.path().join("device");
+            let uevent = fs::read_to_string(device_dir.join("uevent")).ok()?;
+            let id = hid_usb_id(&uevent)?;
+            if id.vendor != KEYCHRON_VENDOR_ID || !has_vendor_usage_page(&device_dir) {
+                return None;
+            }
+            let name = uevent
+                .lines()
+                .find_map(|line| line.strip_prefix("HID_NAME="))
+                .map(tidy_name)
+                .unwrap_or_else(|| "unknown device".into());
+            Some(MouseInterface { node: PathBuf::from("/dev").join(entry.file_name()), id, name })
+        })
         .collect();
-    nodes.sort();
-    nodes
+    found.sort_by(|a, b| a.node.cmp(&b.node));
+    found
 }
 
-fn has_vendor_interface(device_dir: &Path, devices: &[UsbId]) -> bool {
-    let Some(id) = fs::read_to_string(device_dir.join("uevent"))
-        .ok()
-        .and_then(|uevent| hid_usb_id(&uevent))
-    else {
-        return false;
-    };
-    id.vendor == KEYCHRON_VENDOR_ID
-        && (devices.is_empty() || devices.contains(&id))
-        && fs::read(device_dir.join("report_descriptor")).is_ok_and(|descriptor| {
-            descriptor
-                .windows(VENDOR_USAGE_PAGE_DESCRIPTOR.len())
-                .any(|window| window == VENDOR_USAGE_PAGE_DESCRIPTOR)
-        })
+fn has_vendor_usage_page(device_dir: &Path) -> bool {
+    fs::read(device_dir.join("report_descriptor")).is_ok_and(|descriptor| {
+        descriptor
+            .windows(VENDOR_USAGE_PAGE_DESCRIPTOR.len())
+            .any(|window| window == VENDOR_USAGE_PAGE_DESCRIPTOR)
+    })
+}
+
+/// HID names repeat the vendor ("Keychron Keychron TurboLink 8K"); drops the duplicate.
+fn tidy_name(name: &str) -> String {
+    let name = name.trim();
+    match name.split_once(' ') {
+        Some((first, rest)) if rest.starts_with(&format!("{first} ")) => rest.to_string(),
+        _ => name.to_string(),
+    }
 }
 
 /// Parses the USB ID from a uevent's `HID_ID=bus:vendor:product` line (8 hex digits each).
@@ -142,7 +172,11 @@ pub fn set_profile(index: u8, config: &Config) -> Result<(), String> {
     if index >= count {
         return Err(format!("profile index {index} out of range (count {count})"));
     }
-    let devices = find_vendor_hidraws(&config.devices);
+    let devices: Vec<PathBuf> = mouse_interfaces()
+        .into_iter()
+        .filter(|mouse| config.devices.is_empty() || config.devices.contains(&mouse.id))
+        .map(|mouse| mouse.node)
+        .collect();
     if devices.is_empty() {
         return Err("no matching Keychron mouse connected".into());
     }
@@ -174,6 +208,18 @@ mod tests {
     fn parses_usb_id_from_uevent() {
         let uevent = "DRIVER=hid-generic\nHID_ID=0003:00003434:0000D05A\nHID_NAME=Keychron\n";
         assert_eq!(hid_usb_id(uevent), Some(UsbId { vendor: 0x3434, product: 0xd05a }));
+    }
+
+    #[test]
+    fn tidies_repeated_vendor_in_name() {
+        assert_eq!(tidy_name("Keychron Keychron TurboLink 8K"), "Keychron TurboLink 8K");
+        assert_eq!(tidy_name("Keychron TurboLink 8K"), "Keychron TurboLink 8K");
+        assert_eq!(tidy_name("Keychron"), "Keychron");
+    }
+
+    #[test]
+    fn formats_usb_id() {
+        assert_eq!(UsbId { vendor: 0x3434, product: 0xd05a }.to_string(), "3434:d05a");
     }
 
     #[test]
