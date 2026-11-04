@@ -8,7 +8,10 @@ use std::{
     path::Path,
 };
 
-use crate::{config_path, mouse_interfaces, UsbId, DEFAULT_PROFILE_COUNT, MAX_PROFILE_COUNT};
+use crate::{
+    checklist::{self, Item, Outcome},
+    config_path, mouse_interfaces, UsbId, DEFAULT_PROFILE_COUNT, MAX_PROFILE_COUNT,
+};
 
 const EXAMPLE_CONFIG: &str = include_str!("../apps.conf.example");
 
@@ -87,41 +90,38 @@ fn ask_profile_count(ui: &Ui) -> u8 {
     }
 }
 
-/// Shows the picker when 2+ devices are known and returns the updated config text, or `None`
-/// if the user kept the current choice (or wasn't asked).
+/// Shows the checkbox picker when any device is known (connected or saved) and returns the updated config text, or
+/// `None` if the user kept the current choice (or wasn't asked). The ticked devices are always
+/// saved as `device` lines, even when all are ticked, so they stay listed while unplugged.
 fn pick_devices(ui: &Ui, text: &str) -> Option<String> {
     let connected: Vec<(UsbId, String)> =
         mouse_interfaces().into_iter().map(|mouse| (mouse.id, mouse.name)).collect();
     let choices = device_choices(&saved_devices(text), &connected);
-    if choices.len() < 2 || !ui.interactive {
+    if choices.is_empty() || !ui.interactive || !io::stdout().is_terminal() {
         return None;
     }
-
-    ui.question("Which devices should switch profiles?");
-    let width = choices.iter().map(|choice| choice.name.chars().count()).max().unwrap_or(0);
-    for (i, choice) in choices.iter().enumerate() {
-        let mark = if choice.selected { 'x' } else { ' ' };
-        let unplugged = if choice.connected { "" } else { "  (not connected)" };
-        println!(
-            "      {}) [{mark}] {:<width$}  {}",
-            i + 1,
-            choice.name,
-            ui.dim(&format!("{}{unplugged}", choice.id))
-        );
-    }
-    loop {
-        let answer = ui.prompt("    Numbers separated by spaces, a = all, Enter = keep:");
-        match parse_selection(&answer, choices.len()) {
-            Some(Selection::Keep) => return None,
-            Some(Selection::All) => return Some(with_device_lines(text, &[])),
-            Some(Selection::Only(picked)) => {
-                let lines: Vec<String> = picked
-                    .iter()
-                    .map(|&i| format!("device = {}  # {}", choices[i].id, choices[i].name))
-                    .collect();
-                return Some(with_device_lines(text, &lines));
-            }
-            None => ui.warn(&format!("enter numbers from 1 to {}, a, or nothing", choices.len())),
+    let items: Vec<Item> = choices
+        .iter()
+        .map(|choice| Item {
+            label: choice.name.clone(),
+            detail: format!("{}{}", choice.id, if choice.connected { "" } else { "  (not connected)" }),
+            checked: choice.selected,
+        })
+        .collect();
+    match checklist::run("Which devices should switch profiles?", &items, ui.color) {
+        Ok(Outcome::Kept) => None,
+        Ok(Outcome::Confirmed(checked)) => {
+            let lines: Vec<String> = choices
+                .iter()
+                .zip(checked)
+                .filter(|(_, checked)| *checked)
+                .map(|(choice, _)| format!("device = {}  # {}", choice.id, choice.name))
+                .collect();
+            Some(with_device_lines(text, &lines))
+        }
+        Err(_) => {
+            ui.warn("can't read keys in this terminal — edit the device lines in apps.conf instead");
+            None
         }
     }
 }
@@ -153,31 +153,6 @@ fn device_choices(saved: &[(UsbId, String)], connected: &[(UsbId, String)]) -> V
         }
     }
     choices
-}
-
-#[derive(Debug, PartialEq)]
-enum Selection {
-    Keep,
-    All,
-    /// 0-based indices, sorted and deduplicated.
-    Only(Vec<usize>),
-}
-
-/// Parses the picker answer: empty = keep, `a` = all, else 1-based numbers. `None` if invalid.
-fn parse_selection(answer: &str, count: usize) -> Option<Selection> {
-    match answer.trim() {
-        "" => Some(Selection::Keep),
-        "a" | "A" => Some(Selection::All),
-        numbers => {
-            let mut picked = numbers
-                .split_whitespace()
-                .map(|n| n.parse::<usize>().ok().filter(|n| (1..=count).contains(n)).map(|n| n - 1))
-                .collect::<Option<Vec<_>>>()?;
-            picked.sort();
-            picked.dedup();
-            Some(Selection::Only(picked))
-        }
-    }
 }
 
 /// `device = …` line (not commented out)?
@@ -277,24 +252,16 @@ impl Ui {
         }
     }
 
-    fn dim(&self, text: &str) -> String {
-        self.paint("2", text)
-    }
-
     fn ok(&self, message: &str) {
         println!("  {} {message}", self.paint("32", "✓"));
     }
 
     fn info(&self, message: &str) {
-        println!("  {} {message}", self.dim("·"));
+        println!("  {} {message}", self.paint("2", "·"));
     }
 
     fn warn(&self, message: &str) {
         eprintln!("  {} {message}", self.paint("33", "!"));
-    }
-
-    fn question(&self, message: &str) {
-        println!("  {} {message}", self.paint("34", "?"));
     }
 
     /// `? question [default]` prompt on one line; returns the trimmed answer.
@@ -321,16 +288,6 @@ mod tests {
 
     fn lines(items: &[&str]) -> Vec<String> {
         items.iter().map(|item| item.to_string()).collect()
-    }
-
-    #[test]
-    fn parses_selection() {
-        assert_eq!(parse_selection("", 2), Some(Selection::Keep));
-        assert_eq!(parse_selection(" a ", 2), Some(Selection::All));
-        assert_eq!(parse_selection("2 1 2", 2), Some(Selection::Only(vec![0, 1])));
-        assert_eq!(parse_selection("3", 2), None);
-        assert_eq!(parse_selection("0", 2), None);
-        assert_eq!(parse_selection("x", 2), None);
     }
 
     #[test]

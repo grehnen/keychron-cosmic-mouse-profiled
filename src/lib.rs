@@ -4,6 +4,7 @@
 //! vendor interface (usage page 0xFFC1), payload `0E <index> <profile_count>`
 //! padded to 20 bytes.
 
+mod checklist;
 pub mod setup;
 
 use std::{

@@ -21,7 +21,7 @@ It is safe to re-run (e.g. after `git pull`). It:
 
 1. builds and installs both binaries with `cargo install` into `~/.cargo/bin`;
 2. writes the udev rule `/etc/udev/rules.d/70-keychron.rules` (asks for sudo, only if missing or changed) and checks you can access the mouse — replug it if told to;
-3. runs `mouse-profile configure`: creates `~/.config/mouse-profile/apps.conf` if it doesn't exist, asking how many profiles the mouse has. When 2 or more devices are known (connected, or already saved), it lets you pick which get the profile command; in an existing `apps.conf` only the `device` lines are changed;
+3. runs `mouse-profile configure`: creates `~/.config/mouse-profile/apps.conf` if it doesn't exist, asking how many profiles the mouse has. It then shows a checkbox list of the known devices (connected, or already saved), pre-ticked from your saved `device` lines, to pick which get the profile command; in an existing `apps.conf` only the `device` lines are changed;
 4. installs, enables and (re)starts the `mouse-profiled` systemd user service.
 
 Uninstall with `./install.sh --uninstall` (keeps your `apps.conf`).
