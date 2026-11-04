@@ -17,6 +17,8 @@ const VENDOR_USAGE_PAGE_DESCRIPTOR: [u8; 3] = [0x06, 0xC1, 0xFF];
 const PROFILE_REPORT_ID: u8 = 0xB5;
 const PROFILE_PAYLOAD_LEN: usize = 20;
 const DEFAULT_PROFILE_COUNT: u8 = 2;
+/// The launcher allows at most 5 profiles ("Levels").
+pub const MAX_PROFILE_COUNT: u8 = 5;
 
 /// Contents of `~/.config/mouse-profile/apps.conf`.
 pub struct Config {
@@ -57,7 +59,7 @@ fn parse_config(text: &str) -> Config {
         let Some((key, value)) = line.split_once('=') else { continue };
         let Ok(number) = value.trim().parse::<u8>() else { continue };
         match key.trim() {
-            "profiles" if number > 0 => config.profile_count = number,
+            "profiles" if (1..=MAX_PROFILE_COUNT).contains(&number) => config.profile_count = number,
             "profiles" => {}
             "default" => config.default_profile = number,
             app_id => {
@@ -162,7 +164,9 @@ mod tests {
     }
 
     #[test]
-    fn zero_profiles_is_ignored() {
+    fn out_of_range_profile_count_is_ignored() {
         assert_eq!(parse_config("profiles = 0").profile_count, DEFAULT_PROFILE_COUNT);
+        assert_eq!(parse_config("profiles = 6").profile_count, DEFAULT_PROFILE_COUNT);
+        assert_eq!(parse_config("profiles = 5").profile_count, 5);
     }
 }

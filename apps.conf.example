@@ -1,8 +1,8 @@
 # mouse-profile config. Edits apply on the next focus change, no restart needed.
 # Profiles are numbered from 0 (0 = first, 1 = second, ...).
 
-# Number of profiles set up on the mouse ("Levels" in the Keychron launcher).
-# Defaults to 2; uncomment and change it if you use more.
+# Number of profiles set up on the mouse ("Levels" in the Keychron launcher, 1–5).
+# Defaults to 2 if this line is missing or commented out.
 # profiles = 2
 
 # Profile for every app without its own rule below.

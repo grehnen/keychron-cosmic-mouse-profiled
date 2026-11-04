@@ -19,7 +19,7 @@ It is safe to re-run (e.g. after `git pull`). It:
 
 1. writes the udev rule `/etc/udev/rules.d/70-keychron.rules` (asks for sudo, only if missing or changed) and checks you can access the mouse — replug it if told to;
 2. builds and installs both binaries with `cargo install` into `~/.cargo/bin`;
-3. creates `~/.config/mouse-profile/apps.conf` from `apps.conf.example` if it doesn't exist (never overwrites);
+3. creates `~/.config/mouse-profile/apps.conf` from `apps.conf.example` if it doesn't exist, asking how many profiles the mouse has (never overwrites an existing one);
 4. installs, enables and (re)starts the `mouse-profiled` systemd user service.
 
 Uninstall with `./install.sh --uninstall` (keeps your `apps.conf`).
@@ -58,7 +58,7 @@ Uninstall with `./install.sh --uninstall` (keeps your `apps.conf`).
 Edit `~/.config/mouse-profile/apps.conf`:
 
 ```ini
-profiles = 2         # number of profiles on the mouse ("Levels" in the launcher; default 2)
+profiles = 2         # number of profiles on the mouse ("Levels" in the launcher, 1–5; default 2)
 default = 0          # profile for every app not listed
 
 steam_app_730 = 1    # app_id = profile index

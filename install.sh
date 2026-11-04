@@ -112,9 +112,34 @@ install_config() {
     if [[ -e $CONFIG_DIR/apps.conf ]]; then
         ok "$(pretty "$CONFIG_DIR/apps.conf") exists — left untouched"
     else
-        cp "$REPO_DIR/apps.conf.example" "$CONFIG_DIR/apps.conf"
-        ok "created $(pretty "$CONFIG_DIR/apps.conf") from apps.conf.example"
+        local count
+        count=$(ask_profile_count)
+        sed "s/^# profiles = 2\$/profiles = $count/" "$REPO_DIR/apps.conf.example" >"$CONFIG_DIR/apps.conf"
+        grep -q "^profiles = $count\$" "$CONFIG_DIR/apps.conf" ||
+            printf '\nprofiles = %s\n' "$count" >>"$CONFIG_DIR/apps.conf"
+        ok "created $(pretty "$CONFIG_DIR/apps.conf") with $count profiles"
     fi
+}
+
+# Prints the number of profiles to stdout; prompts on stderr when run interactively.
+ask_profile_count() {
+    local answer
+    if [[ ! -t 0 ]]; then
+        info "not interactive — using 2 profiles (change 'profiles' in apps.conf)" >&2
+        echo 2
+        return
+    fi
+    while true; do
+        printf '  %s?%s How many profiles are set up on the mouse ("Levels" in the launcher, 1–5)? [2] ' \
+            "$BLUE" "$RESET" >&2
+        read -r answer || answer=''
+        answer=${answer:-2}
+        if [[ $answer =~ ^[0-9]+$ ]] && ((10#$answer >= 1 && 10#$answer <= 5)); then
+            echo $((10#$answer))
+            return
+        fi
+        warn "enter a whole number from 1 to 5"
+    done
 }
 
 install_service() {
