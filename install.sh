@@ -28,12 +28,14 @@ pretty() { printf '%s' "${1/#$HOME/\~}"; }
 
 # --- helpers -----------------------------------------------------------------
 
-keychron_hidraw_nodes() {
-    local uevent
-    for uevent in /sys/class/hidraw/hidraw*/device/uevent; do
-        if grep -qi '^HID_ID=.*:00003434:' "$uevent" 2>/dev/null; then
-            echo "/dev/$(basename "$(dirname "$(dirname "$uevent")")")"
-        fi
+# The hidraw nodes the profile command is sent to: Keychron devices (vendor 0x3434) whose
+# report descriptor has the vendor usage page 0xFFC1 (bytes 06 C1 FF). Mirrors src/lib.rs.
+mouse_hidraw_nodes() {
+    local dir
+    for dir in /sys/class/hidraw/hidraw*/device; do
+        grep -qi '^HID_ID=.*:00003434:' "$dir/uevent" 2>/dev/null || continue
+        od -An -tx1 -v "$dir/report_descriptor" 2>/dev/null | tr -d '\n' | grep -q ' 06 c1 ff' || continue
+        echo "/dev/$(basename "$(dirname "$dir")")"
     done
 }
 
@@ -81,9 +83,9 @@ install_udev_rule() {
     fi
 
     local nodes node count=0 missing_access=0
-    nodes=$(keychron_hidraw_nodes)
+    nodes=$(mouse_hidraw_nodes)
     if [[ -z $nodes ]]; then
-        warn "no Keychron device plugged in — can't verify access yet"
+        warn "no Keychron mouse connected — can't verify access yet"
         return
     fi
     for node in $nodes; do
@@ -91,9 +93,11 @@ install_udev_rule() {
         [[ -w $node ]] || missing_access=1
     done
     if ((missing_access)); then
-        warn "no write access to the Keychron hidraw devices yet — unplug and replug the receiver/cable"
+        warn "no write access to the Keychron mouse yet — unplug and replug the receiver/cable"
     else
-        ok "write access to $count Keychron hidraw device(s)"
+        local noun="Keychron mouse interface"
+        ((count == 1)) || noun+="s"
+        ok "write access to $count $noun"
     fi
 }
 
