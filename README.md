@@ -79,7 +79,7 @@ Each focus change prints `focus: <app_id> -> profile N`. Copy the `<app_id>` int
 
 The profile command was captured from the Keychron web launcher (launcher.keychron.com) by logging its WebHID traffic:
 
-- Interface: the TurboLink receiver's vendor HID collection (usage page `0xFFC1`), found by scanning `/sys/class/hidraw/*/device/report_descriptor`.
+- Interface: the TurboLink receiver's vendor HID collection (usage page `0xFFC1`), found (on every connected Keychron device) by scanning `/sys/class/hidraw/*/device/report_descriptor`.
 - Output report ID `0xB5`, 20-byte payload: `0E <profile_index> <profile_count> 00…`.
 - `<profile_count>` matches "Levels" in the launcher (default 2). Override with `MOUSE_PROFILE_COUNT=N`.
 
@@ -89,10 +89,10 @@ If a firmware update breaks switching, re-capture: hook `HIDDevice.prototype.sen
 
 ## Compatibility
 
-Only tested on the Keychron G6 HE 8K (TurboLink 8K receiver, 2 profiles). Nothing is tied to that model: the code picks the first Keychron device (vendor ID `0x3434`) that has the `0xFFC1` vendor interface. Other Keychron mice managed by the same web launcher will probably work, but check first:
+Only tested on the Keychron G6 HE 8K (TurboLink 8K receiver, 2 profiles). Nothing is tied to that model: the profile command is sent to every Keychron device (vendor ID `0x3434`) that has the `0xFFC1` vendor interface. Other Keychron mice managed by the same web launcher will probably work, but check first:
 
 - Capture the launcher's profile command (see [How it works](#how-it-works)) and make sure it matches `B5 0E <index> <count>`. Another model could use different bytes.
-- With more than one matching Keychron device connected, the command may go to the wrong one.
+- Every matching device gets the same command, so a different Keychron model that also has this interface but uses other bytes could receive a command it doesn't understand.
 - If you use more than 2 profiles, set `MOUSE_PROFILE_COUNT`.
 
 ## Troubleshooting

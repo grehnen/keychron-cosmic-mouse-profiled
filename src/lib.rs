@@ -4,7 +4,11 @@
 //! vendor interface (usage page 0xFFC1), payload `0E <index> <profile_count>`
 //! padded to 20 bytes.
 
-use std::{fs, io::Write, path::PathBuf};
+use std::{
+    fs,
+    io::Write,
+    path::{Path, PathBuf},
+};
 
 const KEYCHRON_VENDOR_ID: u32 = 0x3434;
 /// `Usage Page (0xFFC1)` as it appears in a HID report descriptor.
@@ -21,22 +25,31 @@ pub fn profile_count() -> u8 {
         .unwrap_or(DEFAULT_PROFILE_COUNT)
 }
 
-/// Finds the `/dev/hidrawN` node of the mouse's vendor interface.
-pub fn find_vendor_hidraw() -> Option<PathBuf> {
-    let mut entries: Vec<_> = fs::read_dir("/sys/class/hidraw").ok()?.flatten().collect();
-    entries.sort_by_key(|entry| entry.file_name());
-    entries.into_iter().find_map(|entry| {
-        let device_dir = entry.path().join("device");
-        let uevent = fs::read_to_string(device_dir.join("uevent")).ok()?;
-        if hid_vendor_id(&uevent)? != KEYCHRON_VENDOR_ID {
-            return None;
-        }
-        let descriptor = fs::read(device_dir.join("report_descriptor")).ok()?;
-        descriptor
-            .windows(VENDOR_USAGE_PAGE_DESCRIPTOR.len())
-            .any(|window| window == VENDOR_USAGE_PAGE_DESCRIPTOR)
-            .then(|| PathBuf::from("/dev").join(entry.file_name()))
-    })
+/// Finds the `/dev/hidrawN` nodes of every Keychron device with the vendor interface.
+pub fn find_vendor_hidraws() -> Vec<PathBuf> {
+    let Ok(dir) = fs::read_dir("/sys/class/hidraw") else {
+        return Vec::new();
+    };
+    let mut nodes: Vec<_> = dir
+        .flatten()
+        .filter(|entry| has_vendor_interface(&entry.path().join("device")))
+        .map(|entry| PathBuf::from("/dev").join(entry.file_name()))
+        .collect();
+    nodes.sort();
+    nodes
+}
+
+fn has_vendor_interface(device_dir: &Path) -> bool {
+    let is_keychron = fs::read_to_string(device_dir.join("uevent"))
+        .ok()
+        .and_then(|uevent| hid_vendor_id(&uevent))
+        == Some(KEYCHRON_VENDOR_ID);
+    is_keychron
+        && fs::read(device_dir.join("report_descriptor")).is_ok_and(|descriptor| {
+            descriptor
+                .windows(VENDOR_USAGE_PAGE_DESCRIPTOR.len())
+                .any(|window| window == VENDOR_USAGE_PAGE_DESCRIPTOR)
+        })
 }
 
 /// Parses the vendor ID from a uevent's `HID_ID=bus:vendor:product` line.
@@ -45,19 +58,34 @@ fn hid_vendor_id(uevent: &str) -> Option<u32> {
     u32::from_str_radix(hid_id.split(':').nth(1)?, 16).ok()
 }
 
+/// Sends the profile command to every matching device. Fails if none is found or any write fails.
 pub fn set_profile(index: u8) -> Result<(), String> {
     let count = profile_count();
     if index >= count {
         return Err(format!("profile index {index} out of range (count {count})"));
     }
-    let device = find_vendor_hidraw().ok_or("Keychron mouse vendor interface not found")?;
+    let devices = find_vendor_hidraws();
+    if devices.is_empty() {
+        return Err("Keychron mouse vendor interface not found".into());
+    }
     let mut report = vec![0u8; 1 + PROFILE_PAYLOAD_LEN];
     report[..4].copy_from_slice(&[PROFILE_REPORT_ID, 0x0E, index, count]);
-    fs::OpenOptions::new()
-        .write(true)
-        .open(&device)
-        .and_then(|mut hid| hid.write_all(&report))
-        .map_err(|err| format!("{}: {err}", device.display()))
+    let errors: Vec<String> = devices
+        .iter()
+        .filter_map(|device| {
+            fs::OpenOptions::new()
+                .write(true)
+                .open(device)
+                .and_then(|mut hid| hid.write_all(&report))
+                .err()
+                .map(|err| format!("{}: {err}", device.display()))
+        })
+        .collect();
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("; "))
+    }
 }
 
 #[cfg(test)]
